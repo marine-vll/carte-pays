@@ -316,12 +316,23 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
           </Geographies>
         </ZoomableGroup>
       </ComposableMap>
-      <div className="absolute top-2 right-2 flex overflow-hidden rounded-md border border-border bg-background shadow-sm">
+      {/* Explicit colors, not Tailwind theme tokens (bg-background,
+          border-border, ...): those resolve against CSS variables set by
+          ThemeProvider, which doesn't reliably pick up a theme once this
+          widget is actually embedded inside Grist — leaving the toolbar
+          transparent/invisible there even though it renders fine in dev
+          and in tests. The rest of the map already avoids this by using
+          literal hex values (NEUTRAL_FILL, ACCENT_GREEN, ...). */}
+      <div
+        className="absolute top-2 right-2 flex overflow-hidden rounded-md shadow-sm"
+        style={{ backgroundColor: "#ffffff", border: "1px solid #c7c7c7" }}
+      >
         <Button
           type="button"
           variant="ghost"
           size="icon-sm"
-          className="rounded-none border-r border-border"
+          className="rounded-none hover:bg-black/5"
+          style={{ color: "#1f2937", borderRight: "1px solid #c7c7c7" }}
           aria-label="Zoomer"
           onClick={() => zoomBy(1.5)}
         >
@@ -331,7 +342,8 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
           type="button"
           variant="ghost"
           size="icon-sm"
-          className="rounded-none"
+          className="rounded-none hover:bg-black/5"
+          style={{ color: "#1f2937" }}
           aria-label="Dézoomer"
           onClick={() => zoomBy(1 / 1.5)}
         >
