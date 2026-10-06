@@ -1,5 +1,6 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import type { GeoJsonObject } from "geojson"
+import { Minus, Plus, RotateCcw } from "lucide-react"
 import { ComposableMap, Geographies, Geography, ZoomableGroup } from "react-simple-maps"
 
 import {
@@ -9,6 +10,7 @@ import {
   type UseGristResult,
 } from "grist-widget-sdk"
 
+import { Button } from "@/components/ui/button"
 import worldTopologyJson from "@/data/world-countries-50m.json"
 import { resolveCountryKey } from "@/lib/country-name-to-iso"
 
@@ -96,43 +98,117 @@ function useCountryData(w: PaysGrist): CountryData {
   }, [rows, mappings])
 }
 
-function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
-  return (
-    <ComposableMap
-      width={960}
-      height={520}
-      projectionConfig={{ scale: 150 }}
-      className="aspect-[960/520] w-full"
-    >
-      <ZoomableGroup minZoom={1} maxZoom={8} center={[12, 8]}>
-        <Geographies geography={worldTopology}>
-          {({ geographies }) =>
-            geographies.map((geo) => {
-              const mapName =
-                typeof geo.properties?.name === "string" ? geo.properties.name : ""
-              const key = geo.id != null ? String(geo.id) : mapName || undefined
-              const status = key ? byKey.get(key) : undefined
-              const fill = status?.hasFiche ? ACCENT_GREEN : NEUTRAL_FILL
-              const tooltip = status
-                ? `${status.pays} — ${
-                    status.hasFiche ? `Fiche créée (${status.csl})` : "Pas de fiche"
-                  }`
-                : mapName
+const MAP_WIDTH = 960
+const MAP_HEIGHT = 520
+const MIN_ZOOM = 1
+const MAX_ZOOM = 8
+const DEFAULT_CENTER: [number, number] = [12, 8]
 
-              return (
-                <Geography
-                  key={geo.rsmKey}
-                  geography={geo}
-                  style={{ fill, stroke: BORDER_COLOR, strokeWidth: 0.5 }}
-                >
-                  {tooltip ? <title>{tooltip}</title> : null}
-                </Geography>
-              )
-            })
-          }
-        </Geographies>
-      </ZoomableGroup>
-    </ComposableMap>
+type MapPosition = { coordinates: [number, number]; zoom: number }
+
+const DEFAULT_POSITION: MapPosition = { coordinates: DEFAULT_CENTER, zoom: MIN_ZOOM }
+
+function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
+  const [position, setPosition] = useState<MapPosition>(DEFAULT_POSITION)
+
+  function handleMoveEnd({
+    coordinates,
+    zoom,
+  }: {
+    coordinates?: [number, number]
+    zoom?: number
+  }) {
+    setPosition((prev) => ({
+      coordinates: coordinates ?? prev.coordinates,
+      zoom: zoom ?? prev.zoom,
+    }))
+  }
+
+  function zoomBy(factor: number) {
+    setPosition((prev) => ({
+      ...prev,
+      zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev.zoom * factor)),
+    }))
+  }
+
+  return (
+    <div className="relative">
+      <ComposableMap
+        width={MAP_WIDTH}
+        height={MAP_HEIGHT}
+        projectionConfig={{ scale: 150 }}
+        className="aspect-[960/520] w-full"
+      >
+        <ZoomableGroup
+          center={position.coordinates}
+          zoom={position.zoom}
+          minZoom={MIN_ZOOM}
+          maxZoom={MAX_ZOOM}
+          translateExtent={[
+            [0, 0],
+            [MAP_WIDTH, MAP_HEIGHT],
+          ]}
+          onMoveEnd={handleMoveEnd}
+        >
+          <Geographies geography={worldTopology}>
+            {({ geographies }) =>
+              geographies.map((geo) => {
+                const mapName =
+                  typeof geo.properties?.name === "string" ? geo.properties.name : ""
+                const key = geo.id != null ? String(geo.id) : mapName || undefined
+                const status = key ? byKey.get(key) : undefined
+                const fill = status?.hasFiche ? ACCENT_GREEN : NEUTRAL_FILL
+                const tooltip = status
+                  ? `${status.pays} — ${
+                      status.hasFiche ? `Fiche créée (${status.csl})` : "Pas de fiche"
+                    }`
+                  : mapName
+
+                return (
+                  <Geography
+                    key={geo.rsmKey}
+                    geography={geo}
+                    vectorEffect="non-scaling-stroke"
+                    style={{ fill, stroke: BORDER_COLOR, strokeWidth: 0.5 }}
+                  >
+                    {tooltip ? <title>{tooltip}</title> : null}
+                  </Geography>
+                )
+              })
+            }
+          </Geographies>
+        </ZoomableGroup>
+      </ComposableMap>
+      <div className="absolute top-2 right-2 flex flex-col gap-1">
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          aria-label="Zoomer"
+          onClick={() => zoomBy(1.5)}
+        >
+          <Plus />
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          aria-label="Dézoomer"
+          onClick={() => zoomBy(1 / 1.5)}
+        >
+          <Minus />
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          aria-label="Réinitialiser le zoom"
+          onClick={() => setPosition(DEFAULT_POSITION)}
+        >
+          <RotateCcw />
+        </Button>
+      </div>
+    </div>
   )
 }
 
