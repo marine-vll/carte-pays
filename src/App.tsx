@@ -1,7 +1,7 @@
-import { useState, type FormEvent } from "react"
+import { useMemo } from "react"
+import type { GeoJsonObject } from "geojson"
+import { ComposableMap, Geographies, Geography, ZoomableGroup } from "react-simple-maps"
 
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   useGrist,
   useWidgetMetadata,
@@ -9,177 +9,177 @@ import {
   type UseGristResult,
 } from "grist-widget-sdk"
 
-import type { TaskMapped, TaskRow } from "./grist-types.example"
+import worldTopologyJson from "@/data/world-countries-50m.json"
+import { resolveCountryKey } from "@/lib/country-name-to-iso"
+
+import type { PaysMapped, PaysRow } from "./grist-types"
+
+// react-simple-maps accepts a raw TopoJSON `Topology` at runtime (it derives
+// GeoJSON features from it internally), but its own types only declare plain
+// GeoJSON input — hence the cast.
+const worldTopology = worldTopologyJson as unknown as GeoJsonObject
 
 export const GRIST_OPTIONS: UseGristOptions = {
-  requiredAccess: "full",
+  requiredAccess: "read table",
   columns: [
-    { name: "title", type: "Text" },
-    { name: "done", type: "Bool" },
+    { name: "pays", title: "Pays", description: "Nom du pays." },
+    {
+      name: "CSL",
+      title: "CSL",
+      description:
+        'Statut de la dernière fiche CSL (colonne formule, lecture seule). Vaut "NA" si aucune fiche datée.',
+    },
   ],
+  // This widget always shows every row of its table — it never expects a
+  // selector to drive it, so the "section not linked" callout (titled
+  // "Widget linking") would only ever be noise here.
+  suppressAlerts: ["section-not-linked"],
 }
 
 export const WIDGET_METADATA = {
   title: "Carte Pays",
-  description: "Edit the selected row's title and mark it done.",
+  description:
+    "Planisphère : un pays apparaît en vert dès qu'une fiche CSL a été créée pour lui.",
 } as const
 
-type TemplateGrist = UseGristResult<TaskRow, TaskMapped>
+type PaysGrist = UseGristResult<PaysRow, PaysMapped>
 
-function GristSelectionDebug({ w }: { w: TemplateGrist }) {
-  return (
-    <details className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 p-3 text-xs">
-      <summary className="cursor-pointer font-medium text-muted-foreground">
-        Grist selection debug
-      </summary>
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono">
-        <dt className="text-muted-foreground">status</dt>
-        <dd>{w.status}</dd>
-        <dt className="text-muted-foreground">mode</dt>
-        <dd>{w.mode}</dd>
-        <dt className="text-muted-foreground">isReady</dt>
-        <dd>{String(w.isReady)}</dd>
-        <dt className="text-muted-foreground">record.id</dt>
-        <dd>{w.record?.id != null ? String(w.record.id) : "—"}</dd>
-      </dl>
-      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background/80 p-2">
-        {w.record != null
-          ? JSON.stringify(w.record, null, 2)
-          : "null (no row selected)"}
-      </pre>
-    </details>
-  )
+const NEUTRAL_FILL = "#e5e5e5"
+const BORDER_COLOR = "#ffffff"
+const ACCENT_GREEN = "#18753c"
+
+type CountryStatus = {
+  /** Country name exactly as entered in the Grist table. */
+  pays: string
+  csl: string
+  hasFiche: boolean
 }
 
-type Draft = { title: string; done: boolean }
-
-function readDraft(mapped: TaskMapped | null): Draft {
-  return { title: mapped?.title ?? "", done: mapped?.done ?? false }
+type CountryData = {
+  byKey: Map<string, CountryStatus>
+  unrecognized: string[]
+  loaded: boolean
 }
 
-function RowEditor({ w }: { w: TemplateGrist }) {
-  const [draft, setDraft] = useState<Draft>(() => readDraft(w.mappedRecord))
-  const [saveError, setSaveError] = useState<string | null>(null)
+function hasFiche(csl: string): boolean {
+  const trimmed = csl.trim()
+  return trimmed !== "" && trimmed.toUpperCase() !== "NA"
+}
 
-  async function save(e: FormEvent) {
-    e.preventDefault()
-    if (!w.record) return
-    setSaveError(null)
-    try {
-      await w.table.update({
-        id: w.record.id,
-        fields: w.mapBack({ title: draft.title, done: draft.done }),
-      })
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : String(err))
+function useCountryData(w: PaysGrist): CountryData {
+  const rows = w.records
+  const mappings = w.recordsMappings
+
+  return useMemo(() => {
+    const byKey = new Map<string, CountryStatus>()
+    const unrecognized: string[] = []
+
+    const paysCol = typeof mappings?.pays === "string" ? mappings.pays : null
+    const cslCol = typeof mappings?.CSL === "string" ? mappings.CSL : null
+    if (!paysCol || !cslCol || !rows) {
+      return { byKey, unrecognized, loaded: rows != null }
     }
-  }
 
+    for (const row of rows) {
+      const pays = row[paysCol]
+      if (typeof pays !== "string" || !pays.trim()) continue
+      const csl = typeof row[cslCol] === "string" ? (row[cslCol] as string) : ""
+      const key = resolveCountryKey(pays)
+      if (!key) {
+        unrecognized.push(pays)
+        continue
+      }
+      byKey.set(key, { pays, csl, hasFiche: hasFiche(csl) })
+    }
+    unrecognized.sort((a, b) => a.localeCompare(b, "fr"))
+    return { byKey, unrecognized, loaded: true }
+  }, [rows, mappings])
+}
+
+function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
   return (
-    <form onSubmit={save} className="flex flex-col gap-4 p-6 text-sm">
-      <header>
-        <h1 className="font-medium">Row #{String(w.record!.id)}</h1>
-        <p className="text-muted-foreground">
-          Edit the fields, then save back to Grist via{" "}
-          <code className="rounded bg-muted px-1 text-xs">table.update</code>.
-        </p>
-      </header>
+    <ComposableMap
+      width={960}
+      height={520}
+      projectionConfig={{ scale: 150 }}
+      className="aspect-[960/520] w-full"
+    >
+      <ZoomableGroup minZoom={1} maxZoom={8} center={[12, 8]}>
+        <Geographies geography={worldTopology}>
+          {({ geographies }) =>
+            geographies.map((geo) => {
+              const mapName =
+                typeof geo.properties?.name === "string" ? geo.properties.name : ""
+              const key = geo.id != null ? String(geo.id) : mapName || undefined
+              const status = key ? byKey.get(key) : undefined
+              const fill = status?.hasFiche ? ACCENT_GREEN : NEUTRAL_FILL
+              const tooltip = status
+                ? `${status.pays} — ${
+                    status.hasFiche ? `Fiche créée (${status.csl})` : "Pas de fiche"
+                  }`
+                : mapName
 
-      <label className="flex flex-col gap-1">
-        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          Title
-        </span>
-        <Input
-          required
-          value={draft.title}
-          onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-        />
-      </label>
-
-      <label className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          className="size-4 rounded border-input"
-          checked={draft.done}
-          onChange={(e) => setDraft((d) => ({ ...d, done: e.target.checked }))}
-        />
-        <span>Mark as done</span>
-      </label>
-
-      {saveError ? (
-        <p className="text-xs text-destructive">{saveError}</p>
-      ) : null}
-
-      <div className="flex items-center gap-2">
-        <Button type="submit" disabled={w.actionStatus === "running"}>
-          {w.actionStatus === "running" ? "Saving…" : "Save"}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => setDraft(readDraft(w.mappedRecord))}
-          disabled={w.actionStatus === "running"}
-        >
-          Reset
-        </Button>
-        {w.actionStatus === "error" && w.actionError ? (
-          <span className="text-xs text-destructive">{w.actionError}</span>
-        ) : null}
-      </div>
-
-      <GristSelectionDebug w={w} />
-    </form>
+              return (
+                <Geography
+                  key={geo.rsmKey}
+                  geography={geo}
+                  style={{ fill, stroke: BORDER_COLOR, strokeWidth: 0.5 }}
+                >
+                  {tooltip ? <title>{tooltip}</title> : null}
+                </Geography>
+              )
+            })
+          }
+        </Geographies>
+      </ZoomableGroup>
+    </ComposableMap>
   )
 }
 
-function TemplateBody({ w }: { w: TemplateGrist }) {
-  if (w.mode === "empty") {
-    return (
-      <div className="flex flex-col gap-4 p-6 text-sm">
-        <p>Select a row in Grist to start.</p>
-        <GristSelectionDebug w={w} />
-      </div>
-    )
-  }
-
-  if (w.mode === "new-row") {
-    return (
-      <div className="flex flex-col gap-4 p-6 text-sm">
-        <p>Create the new row in Grist, then continue here.</p>
-        <GristSelectionDebug w={w} />
-      </div>
-    )
-  }
-
-  if (!w.columnMappingStatus.ok) {
-    return (
-      <div className="flex flex-col gap-4 p-6 text-sm">
-        <p>
-          Open the widget configuration panel and map the two required
-          columns: Title, Done.
-        </p>
-        <GristSelectionDebug w={w} />
-      </div>
-    )
-  }
-
-  return <RowEditor key={String(w.record!.id)} w={w} />
+function Legend() {
+  return (
+    <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+      <span className="flex items-center gap-1.5">
+        <span
+          className="inline-block size-3 rounded-sm"
+          style={{ backgroundColor: ACCENT_GREEN }}
+          aria-hidden
+        />
+        Fiche créée
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span
+          className="inline-block size-3 rounded-sm border border-border"
+          style={{ backgroundColor: NEUTRAL_FILL }}
+          aria-hidden
+        />
+        Pas de fiche
+      </span>
+    </div>
+  )
 }
 
-/**
- * Remount the body when the selected row changes (same pattern as
- * `widgets/create-email-draft`). Keeps local `useState` in sync with Grist.
- */
 export function App() {
   useWidgetMetadata(WIDGET_METADATA)
 
-  const w = useGrist<TaskRow, TaskMapped>()
-  const rowKey =
-    w.record && typeof w.record.id === "number"
-      ? String(w.record.id)
-      : w.mode
+  const w = useGrist<PaysRow, PaysMapped>()
+  const { byKey, unrecognized, loaded } = useCountryData(w)
 
-  return <TemplateBody key={rowKey} w={w} />
+  if (!loaded) {
+    return <div className="p-6 text-sm text-muted-foreground">Chargement des pays…</div>
+  }
+
+  return (
+    <div className="flex flex-col gap-3 p-4">
+      <WorldMap byKey={byKey} />
+      <Legend />
+      {unrecognized.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Pays non reconnus : {unrecognized.join(", ")}
+        </p>
+      ) : null}
+    </div>
+  )
 }
 
 export default App

@@ -139,3 +139,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* react-simple-maps country shapes: subtle hover/focus feedback, no decorative effects. */
+.rsm-geography {
+  cursor: default;
+  transition: filter 120ms ease;
+}
+.rsm-geography:hover {
+  filter: brightness(0.92);
+}
+.rsm-geography:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
