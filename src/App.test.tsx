@@ -65,7 +65,7 @@ describe("App", () => {
     emulator.setColumnMappings({ pays: "pays", CSL: "CSL" })
 
     await waitFor(() => {
-      expect(screen.getByText("Fiche créée")).toBeInTheDocument()
+      expect(screen.getByText("CSL en cours")).toBeInTheDocument()
       expect(screen.getByText("Pas de fiche")).toBeInTheDocument()
     })
 

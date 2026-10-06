@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import type { GeoJsonObject } from "geojson"
-import { Minus, Plus, RotateCcw } from "lucide-react"
+import { Minus, Plus } from "lucide-react"
 import {
   ComposableMap,
   Geographies,
@@ -147,7 +147,7 @@ function describeStatus(
 ): string {
   if (!status) return mapName
   return status.hasFiche
-    ? `${status.pays} — Fiche créée (${status.csl})`
+    ? `${status.pays} — CSL en cours (${status.csl})`
     : `${status.pays} — Pas de fiche`
 }
 
@@ -221,11 +221,12 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
           </Geographies>
         </ZoomableGroup>
       </ComposableMap>
-      <div className="absolute top-2 right-2 flex flex-col gap-1">
+      <div className="absolute top-2 right-2 flex overflow-hidden rounded-md border border-border bg-background shadow-sm">
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="icon-sm"
+          className="rounded-none border-r border-border"
           aria-label="Zoomer"
           onClick={() => zoomBy(1.5)}
         >
@@ -233,21 +234,13 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
         </Button>
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="icon-sm"
+          className="rounded-none"
           aria-label="Dézoomer"
           onClick={() => zoomBy(1 / 1.5)}
         >
           <Minus />
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon-sm"
-          aria-label="Réinitialiser le zoom"
-          onClick={() => setPosition(DEFAULT_POSITION)}
-        >
-          <RotateCcw />
         </Button>
       </div>
     </div>
@@ -263,7 +256,7 @@ function Legend() {
           style={{ backgroundColor: ACCENT_GREEN }}
           aria-hidden
         />
-        Fiche créée
+        CSL en cours
       </span>
       <span className="flex items-center gap-1.5">
         <span
