@@ -14,6 +14,21 @@ export type CountryKeyEntry = {
   names: string[]
 }
 
+/**
+ * French overseas territories that appear as their own map feature (distinct
+ * from mainland France, key "250"). Always rendered in a dedicated dark grey
+ * on the map, regardless of their CSL/Projet AAP status.
+ */
+export const FRENCH_TERRITORY_KEYS = new Set<string>([
+  "258", // Polynésie française
+  "540", // Nouvelle-Calédonie
+  "260", // Terres australes et antarctiques françaises
+  "876", // Wallis-et-Futuna
+  "666", // Saint-Pierre-et-Miquelon
+  "652", // Saint-Barthélemy
+  "663", // Saint-Martin
+])
+
 export const COUNTRY_KEY_ENTRIES: CountryKeyEntry[] = [
   { key: "004", names: ["Afghanistan"] },
   { key: "248", names: ["Åland", "Îles Åland"] },

@@ -43,15 +43,24 @@ const PAYS_DOCUMENT: GristReplicaDocument = {
       columns: {
         pays: { type: "Text", label: "Pays" },
         CSL: { type: "Text", label: "CSL", isFormula: true },
+        projetAAP: { type: "Text", label: "Projet AAP" },
       },
       rows: [
-        { id: 1, pays: "France", CSL: "Validé" },
-        { id: 2, pays: "Allemagne", CSL: "NA" },
-        { id: 3, pays: "Côte d'Ivoire", CSL: "  " },
-        { id: 4, pays: "Pays imaginaire", CSL: "NA" },
-        { id: 5, pays: "Gabon et Sao Tomé-et-Principe", CSL: "Validé" },
-        { id: 6, pays: "CdE Conseil de l'Europe", CSL: "Validé" },
-        { id: 7, pays: "ONU", CSL: "NA" },
+        { id: 1, pays: "France", CSL: "Validé", projetAAP: "" },
+        { id: 2, pays: "Allemagne", CSL: "NA", projetAAP: "" },
+        { id: 3, pays: "Côte d'Ivoire", CSL: "  ", projetAAP: "" },
+        { id: 4, pays: "Pays imaginaire", CSL: "NA", projetAAP: "" },
+        {
+          id: 5,
+          pays: "Gabon et Sao Tomé-et-Principe",
+          CSL: "Validé",
+          projetAAP: "",
+        },
+        { id: 6, pays: "CdE Conseil de l'Europe", CSL: "Validé", projetAAP: "" },
+        { id: 7, pays: "ONU", CSL: "NA", projetAAP: "" },
+        { id: 8, pays: "Italie", CSL: "Validé", projetAAP: "Appel 2026" },
+        { id: 9, pays: "Japon", CSL: "NA", projetAAP: "Appel 2027" },
+        { id: 10, pays: "Polynésie française", CSL: "NA", projetAAP: "" },
       ],
     },
   },
@@ -62,11 +71,11 @@ describe("App", () => {
     const { container, emulator } = renderWithGrist(<Wrapped />, {
       emulator: { document: PAYS_DOCUMENT },
     })
-    emulator.setColumnMappings({ pays: "pays", CSL: "CSL" })
+    emulator.setColumnMappings({ pays: "pays", CSL: "CSL", projetAAP: "projetAAP" })
 
     await waitFor(() => {
-      expect(screen.getByText("CSL en cours")).toBeInTheDocument()
-      expect(screen.getByText("Pas de fiche")).toBeInTheDocument()
+      expect(screen.getByText("CSL lancé")).toBeInTheDocument()
+      expect(screen.getByText("NA")).toBeInTheDocument()
     })
 
     await waitFor(() => {
@@ -82,15 +91,11 @@ describe("App", () => {
         titles.some((t) => t.includes("France") && t.includes("Validé"))
       ).toBe(true)
       expect(
-        titles.some(
-          (t) => t.includes("Allemagne") && t.includes("Pas de fiche")
-        )
+        titles.some((t) => t.includes("Allemagne") && t.includes("NA"))
       ).toBe(true)
       // Côte d'Ivoire's CSL is blank, not "NA" — still counts as "no fiche".
       expect(
-        titles.some(
-          (t) => t.includes("Côte d'Ivoire") && t.includes("Pas de fiche")
-        )
+        titles.some((t) => t.includes("Côte d'Ivoire") && t.includes("NA"))
       ).toBe(true)
     })
   })
@@ -99,7 +104,7 @@ describe("App", () => {
     const { container, emulator } = renderWithGrist(<Wrapped />, {
       emulator: { document: PAYS_DOCUMENT },
     })
-    emulator.setColumnMappings({ pays: "pays", CSL: "CSL" })
+    emulator.setColumnMappings({ pays: "pays", CSL: "CSL", projetAAP: "projetAAP" })
 
     await waitFor(() => {
       const franceTitle = Array.from(container.querySelectorAll("title")).find(
@@ -121,7 +126,7 @@ describe("App", () => {
     const { container, emulator } = renderWithGrist(<Wrapped />, {
       emulator: { document: PAYS_DOCUMENT },
     })
-    emulator.setColumnMappings({ pays: "pays", CSL: "CSL" })
+    emulator.setColumnMappings({ pays: "pays", CSL: "CSL", projetAAP: "projetAAP" })
 
     // "Gabon et Sao Tomé-et-Principe" is one row covering both countries —
     // both map features should turn green from that single entry.
@@ -153,6 +158,57 @@ describe("App", () => {
       const unrecognized = screen.getByText(/Pays non reconnus/)
       expect(unrecognized.textContent).not.toContain("Conseil de l'Europe")
       expect(unrecognized.textContent).not.toContain("ONU")
+    })
+  })
+
+  it("colors by Projet AAP, blends both as stripes, and forces French territories dark grey", async () => {
+    const { container, emulator } = renderWithGrist(<Wrapped />, {
+      emulator: { document: PAYS_DOCUMENT },
+    })
+    emulator.setColumnMappings({
+      pays: "pays",
+      CSL: "CSL",
+      projetAAP: "projetAAP",
+    })
+
+    await waitFor(() => {
+      // Japon: no CSL but a Projet AAP entry — blue only.
+      const japonTitle = Array.from(container.querySelectorAll("title")).find(
+        (t) => t.textContent?.includes("Japon")
+      )
+      expect(japonTitle).toBeTruthy()
+      expect(japonTitle!.textContent).toContain("Projet en cours")
+      expect(japonTitle!.closest("path")).toHaveStyle({ fill: "#0063cb" })
+
+      // Italie: both a CSL and a Projet AAP entry — striped pattern fill.
+      const italieTitle = Array.from(container.querySelectorAll("title")).find(
+        (t) => t.textContent?.includes("Italie")
+      )
+      expect(italieTitle).toBeTruthy()
+      expect(italieTitle!.textContent).toContain("CSL lancé")
+      expect(italieTitle!.textContent).toContain("Projet en cours")
+      expect(italieTitle!.closest("path")).toHaveStyle({
+        fill: "url(#csl-and-projet-aap)",
+      })
+
+      // Polynésie française: always dark grey, regardless of its own status.
+      const polynesieTitle = Array.from(
+        container.querySelectorAll("title")
+      ).find((t) => t.textContent?.includes("Polynésie française"))
+      expect(polynesieTitle).toBeTruthy()
+      expect(polynesieTitle!.textContent).toContain("Territoire français")
+      expect(polynesieTitle!.closest("path")).toHaveStyle({ fill: "#6a6a6a" })
+    })
+
+    // 7 distinct map features are tracked once Polynésie française (a
+    // territory) is excluded: France, Allemagne, Côte d'Ivoire, Gabon,
+    // Sao Tomé-et-Principe, Italie, Japon. 4 of those 7 have a launched
+    // CSL (France, Gabon, Sao Tomé-et-Principe, Italie) — round(4/7*100) = 57.
+    await waitFor(() => {
+      expect(screen.getByText("57%")).toBeInTheDocument()
+      expect(
+        screen.getByText(/des pays suivis ont un CSL lancé/)
+      ).toBeInTheDocument()
     })
   })
 })

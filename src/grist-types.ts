@@ -12,4 +12,5 @@ export type PaysRow = {
 export type PaysMapped = {
   pays: string
   CSL: string
+  projetAAP?: unknown
 }

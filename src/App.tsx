@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import type { GeoJsonObject } from "geojson"
 import { Minus, Plus } from "lucide-react"
 import {
@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button"
 import worldTopologyJson from "@/data/world-countries-50m.json"
 import {
+  FRENCH_TERRITORY_KEYS,
   resolveCountryKeys,
   resolveOrganizationName,
 } from "@/lib/country-name-to-iso"
@@ -39,6 +40,13 @@ export const GRIST_OPTIONS: UseGristOptions = {
       description:
         'Statut de la dernière fiche CSL (colonne formule, lecture seule). Vaut "NA" si aucune fiche datée.',
     },
+    {
+      name: "projetAAP",
+      title: "Projet AAP",
+      description:
+        "Un pays passe en bleu dès que cette colonne contient une valeur.",
+      optional: true,
+    },
   ],
   // This widget always shows every row of its table — it never expects a
   // selector to drive it, so the "section not linked" callout (titled
@@ -55,31 +63,48 @@ export const WIDGET_METADATA = {
 type PaysGrist = UseGristResult<PaysRow, PaysMapped>
 
 const NEUTRAL_FILL = "#e5e5e5"
+const TERRITORY_FILL = "#6a6a6a"
 const BORDER_COLOR = "#ffffff"
 const ACCENT_GREEN = "#18753c"
+const ACCENT_BLUE = "#0063cb"
+const STRIPE_PATTERN_ID = "csl-and-projet-aap"
 
 type CountryStatus = {
   /** Country name exactly as entered in the Grist table. */
   pays: string
   csl: string
   hasFiche: boolean
+  hasProject: boolean
 }
 
 type OrganizationStatus = {
   name: string
   hasFiche: boolean
+  hasProject: boolean
 }
 
 type CountryData = {
   byKey: Map<string, CountryStatus>
   unrecognized: string[]
   organizations: OrganizationStatus[]
+  /** % of (non-territory) tracked countries with a launched CSL, or null with nothing tracked yet. */
+  cslPercentage: number | null
   loaded: boolean
 }
 
 function hasFiche(csl: string): boolean {
   const trimmed = csl.trim()
   return trimmed !== "" && trimmed.toUpperCase() !== "NA"
+}
+
+/** True when a cell is meaningfully filled in — used for the "Projet AAP" column. */
+function hasValue(value: unknown): boolean {
+  if (value == null) return false
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value !== 0
+  if (typeof value === "string") return value.trim() !== ""
+  if (Array.isArray(value)) return value.length > 0
+  return true
 }
 
 function useCountryData(w: PaysGrist): CountryData {
@@ -89,26 +114,42 @@ function useCountryData(w: PaysGrist): CountryData {
   return useMemo(() => {
     const byKey = new Map<string, CountryStatus>()
     const unrecognized: string[] = []
-    const orgByName = new Map<string, boolean>()
+    const orgByName = new Map<
+      string,
+      { hasFiche: boolean; hasProject: boolean }
+    >()
 
     const paysCol = typeof mappings?.pays === "string" ? mappings.pays : null
     const cslCol = typeof mappings?.CSL === "string" ? mappings.CSL : null
+    const projetCol =
+      typeof mappings?.projetAAP === "string" ? mappings.projetAAP : null
     if (!paysCol || !cslCol || !rows) {
-      return { byKey, unrecognized, organizations: [], loaded: rows != null }
+      return {
+        byKey,
+        unrecognized,
+        organizations: [],
+        cslPercentage: null,
+        loaded: rows != null,
+      }
     }
 
     for (const row of rows) {
       const pays = row[paysCol]
       if (typeof pays !== "string" || !pays.trim()) continue
       const csl = typeof row[cslCol] === "string" ? (row[cslCol] as string) : ""
+      const project = projetCol ? hasValue(row[projetCol]) : false
       const keys = resolveCountryKeys(pays)
       if (keys.length === 0) {
         const orgName = resolveOrganizationName(pays)
         if (orgName) {
-          orgByName.set(
-            orgName,
-            (orgByName.get(orgName) ?? false) || hasFiche(csl)
-          )
+          const existing = orgByName.get(orgName) ?? {
+            hasFiche: false,
+            hasProject: false,
+          }
+          orgByName.set(orgName, {
+            hasFiche: existing.hasFiche || hasFiche(csl),
+            hasProject: existing.hasProject || project,
+          })
         } else {
           unrecognized.push(pays)
         }
@@ -116,15 +157,33 @@ function useCountryData(w: PaysGrist): CountryData {
       }
       // A combined entry (e.g. "Gabon et Sao Tomé-et-Principe") resolves to
       // more than one key — both map features share this row's status.
-      const status: CountryStatus = { pays, csl, hasFiche: hasFiche(csl) }
+      const status: CountryStatus = {
+        pays,
+        csl,
+        hasFiche: hasFiche(csl),
+        hasProject: project,
+      }
       for (const key of keys) byKey.set(key, status)
     }
     unrecognized.sort((a, b) => a.localeCompare(b, "fr"))
-    const organizations = Array.from(orgByName, ([name, active]) => ({
+    const organizations = Array.from(orgByName, ([name, status]) => ({
       name,
-      hasFiche: active,
+      ...status,
     })).sort((a, b) => a.name.localeCompare(b.name, "fr"))
-    return { byKey, unrecognized, organizations, loaded: true }
+
+    const trackedCountries = Array.from(byKey.entries()).filter(
+      ([key]) => !FRENCH_TERRITORY_KEYS.has(key)
+    )
+    const cslPercentage =
+      trackedCountries.length > 0
+        ? Math.round(
+            (trackedCountries.filter(([, status]) => status.hasFiche).length /
+              trackedCountries.length) *
+              100
+          )
+        : null
+
+    return { byKey, unrecognized, organizations, cslPercentage, loaded: true }
   }, [rows, mappings])
 }
 
@@ -141,14 +200,30 @@ const DEFAULT_POSITION: MapPosition = {
   zoom: MIN_ZOOM,
 }
 
+function fillFor(
+  status: CountryStatus | undefined,
+  isFrenchTerritory: boolean
+): string {
+  if (isFrenchTerritory) return TERRITORY_FILL
+  if (!status) return NEUTRAL_FILL
+  if (status.hasFiche && status.hasProject) return `url(#${STRIPE_PATTERN_ID})`
+  if (status.hasFiche) return ACCENT_GREEN
+  if (status.hasProject) return ACCENT_BLUE
+  return NEUTRAL_FILL
+}
+
 function describeStatus(
   status: CountryStatus | undefined,
-  mapName: string
+  mapName: string,
+  isFrenchTerritory: boolean
 ): string {
-  if (!status) return mapName
-  return status.hasFiche
-    ? `${status.pays} — CSL en cours (${status.csl})`
-    : `${status.pays} — Pas de fiche`
+  const name = status?.pays ?? mapName
+  const parts: string[] = []
+  if (status?.hasFiche) parts.push(`CSL lancé (${status.csl})`)
+  if (status?.hasProject) parts.push("Projet en cours")
+  if (isFrenchTerritory) parts.push("Territoire français")
+  if (parts.length === 0) return status ? `${name} — NA` : name
+  return `${name} — ${parts.join(" · ")}`
 }
 
 function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
@@ -182,6 +257,18 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
         projectionConfig={{ scale: 150 }}
         className="aspect-[960/520] w-full"
       >
+        <defs>
+          <pattern
+            id={STRIPE_PATTERN_ID}
+            patternUnits="userSpaceOnUse"
+            width={6}
+            height={6}
+            patternTransform="rotate(45)"
+          >
+            <rect width={6} height={6} fill={ACCENT_GREEN} />
+            <rect width={3} height={6} fill={ACCENT_BLUE} />
+          </pattern>
+        </defs>
         <ZoomableGroup
           center={position.coordinates}
           zoom={position.zoom}
@@ -203,8 +290,15 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
                 const key =
                   geo.id != null ? String(geo.id) : mapName || undefined
                 const status = key ? byKey.get(key) : undefined
-                const fill = status?.hasFiche ? ACCENT_GREEN : NEUTRAL_FILL
-                const tooltip = describeStatus(status, mapName)
+                const isFrenchTerritory = key
+                  ? FRENCH_TERRITORY_KEYS.has(key)
+                  : false
+                const fill = fillFor(status, isFrenchTerritory)
+                const tooltip = describeStatus(
+                  status,
+                  mapName,
+                  isFrenchTerritory
+                )
 
                 return (
                   <Geography
@@ -247,27 +341,89 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
   )
 }
 
+function ColorSwatch({ color }: { color: string }) {
+  return (
+    <span
+      className="inline-block size-3 rounded-sm border border-border"
+      style={{ backgroundColor: color }}
+      aria-hidden
+    />
+  )
+}
+
+const LEGEND_STRIPE_PATTERN_ID = "legend-csl-and-projet-aap"
+
+/** A `<pattern>` fill only resolves against elements in the same SVG, so the
+ * legend gets its own tiny standalone swatch rather than reusing the map's. */
+function StripedSwatch() {
+  return (
+    <svg
+      viewBox="0 0 12 12"
+      className="size-3 rounded-sm border border-border"
+      aria-hidden
+    >
+      <defs>
+        <pattern
+          id={LEGEND_STRIPE_PATTERN_ID}
+          patternUnits="userSpaceOnUse"
+          width={4}
+          height={4}
+          patternTransform="rotate(45)"
+        >
+          <rect width={4} height={4} fill={ACCENT_GREEN} />
+          <rect width={2} height={4} fill={ACCENT_BLUE} />
+        </pattern>
+      </defs>
+      <rect width={12} height={12} fill={`url(#${LEGEND_STRIPE_PATTERN_ID})`} />
+    </svg>
+  )
+}
+
+function LegendSwatch({ label, swatch }: { label: string; swatch: ReactNode }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      {swatch}
+      {label}
+    </span>
+  )
+}
+
 function Legend() {
   return (
     <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-      <span className="flex items-center gap-1.5">
-        <span
-          className="inline-block size-3 rounded-sm"
-          style={{ backgroundColor: ACCENT_GREEN }}
-          aria-hidden
-        />
-        CSL en cours
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span
-          className="inline-block size-3 rounded-sm border border-border"
-          style={{ backgroundColor: NEUTRAL_FILL }}
-          aria-hidden
-        />
-        Pas de fiche
-      </span>
+      <LegendSwatch
+        label="CSL lancé"
+        swatch={<ColorSwatch color={ACCENT_GREEN} />}
+      />
+      <LegendSwatch
+        label="Projet en cours"
+        swatch={<ColorSwatch color={ACCENT_BLUE} />}
+      />
+      <LegendSwatch
+        label="CSL lancé et projet en cours"
+        swatch={<StripedSwatch />}
+      />
+      <LegendSwatch label="NA" swatch={<ColorSwatch color={NEUTRAL_FILL} />} />
+      <LegendSwatch
+        label="Territoire français"
+        swatch={<ColorSwatch color={TERRITORY_FILL} />}
+      />
     </div>
   )
+}
+
+/** Dots are too small for a striped "both" state — green takes priority. */
+function dotColorFor(org: OrganizationStatus): string {
+  if (org.hasFiche) return ACCENT_GREEN
+  if (org.hasProject) return ACCENT_BLUE
+  return NEUTRAL_FILL
+}
+
+function describeOrganization(org: OrganizationStatus): string {
+  const parts: string[] = []
+  if (org.hasFiche) parts.push("CSL lancé")
+  if (org.hasProject) parts.push("Projet en cours")
+  return parts.length > 0 ? parts.join(" · ") : "NA"
 }
 
 function OrganizationList({
@@ -283,12 +439,14 @@ function OrganizationList({
         Autres entités suivies :
       </span>
       {organizations.map((org) => (
-        <span key={org.name} className="flex items-center gap-1.5">
+        <span
+          key={org.name}
+          className="flex items-center gap-1.5"
+          title={describeOrganization(org)}
+        >
           <span
             className="inline-block size-2.5 rounded-full"
-            style={{
-              backgroundColor: org.hasFiche ? ACCENT_GREEN : NEUTRAL_FILL,
-            }}
+            style={{ backgroundColor: dotColorFor(org) }}
             aria-hidden
           />
           {org.name}
@@ -302,7 +460,8 @@ export function App() {
   useWidgetMetadata(WIDGET_METADATA)
 
   const w = useGrist<PaysRow, PaysMapped>()
-  const { byKey, unrecognized, organizations, loaded } = useCountryData(w)
+  const { byKey, unrecognized, organizations, cslPercentage, loaded } =
+    useCountryData(w)
 
   if (!loaded) {
     return (
@@ -316,6 +475,12 @@ export function App() {
     <div className="flex flex-col gap-3 p-4">
       <WorldMap byKey={byKey} />
       <Legend />
+      {cslPercentage != null ? (
+        <p className="text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{cslPercentage}%</span>{" "}
+          des pays suivis ont un CSL lancé
+        </p>
+      ) : null}
       <OrganizationList organizations={organizations} />
       {unrecognized.length > 0 ? (
         <p className="text-xs text-muted-foreground">
