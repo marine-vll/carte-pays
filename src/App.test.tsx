@@ -178,7 +178,7 @@ describe("App", () => {
       )
       expect(japonTitle).toBeTruthy()
       expect(japonTitle!.textContent).toContain("Projet en cours")
-      expect(japonTitle!.closest("path")).toHaveStyle({ fill: "#0063cb" })
+      expect(japonTitle!.closest("path")).toHaveStyle({ fill: "#adbed3" })
 
       // Italie: both a CSL and a Projet AAP entry — striped pattern fill.
       const italieTitle = Array.from(container.querySelectorAll("title")).find(

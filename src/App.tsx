@@ -66,7 +66,8 @@ const NEUTRAL_FILL = "#e5e5e5"
 const TERRITORY_FILL = "#6a6a6a"
 const BORDER_COLOR = "#ffffff"
 const ACCENT_GREEN = "#18753c"
-const ACCENT_BLUE = "#0063cb"
+// Pantone 14-4112 TCX "Skyway"
+const ACCENT_BLUE = "#adbed3"
 const STRIPE_PATTERN_ID = "csl-and-projet-aap"
 
 type CountryStatus = {
