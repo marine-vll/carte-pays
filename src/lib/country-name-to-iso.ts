@@ -289,44 +289,57 @@ export function normalizeCountryName(raw: string): string {
   return s
 }
 
-const NAME_TO_KEY = new Map<string, string>()
+/**
+ * A single `$pays` entry can jointly cover two countries (one delegation/post
+ * handles both) — e.g. "Gabon et Sao Tomé-et-Principe" as one row. Each entry
+ * lists every spelling seen for such a combined name and the map feature keys
+ * (see {@link CountryKeyEntry.key}) it should light up together.
+ */
+type ComboCountryEntry = {
+  keys: string[]
+  names: string[]
+}
+
+const COMBO_COUNTRY_ENTRIES: ComboCountryEntry[] = [
+  { keys: ["266", "678"], names: ["Gabon et Sao Tomé-et-Principe"] },
+  {
+    keys: ["324", "694"],
+    names: ["Guinée / Sierra Leone", "Guinée et Sierra Leone"],
+  },
+  { keys: ["404", "706"], names: ["Kenya et Somalie"] },
+  { keys: ["508", "748"], names: ["Mozambique et Eswatini"] },
+  { keys: ["144", "462"], names: ["Sri Lanka et Maldives"] },
+  {
+    keys: ["780", "052"],
+    names: [
+      "Trinité et Tobago et Barbades",
+      "Trinité-et-Tobago et Barbade",
+      "Trinité-et-Tobago et Barbades",
+    ],
+  },
+]
+
+const NAME_TO_KEYS = new Map<string, string[]>()
 for (const entry of COUNTRY_KEY_ENTRIES) {
   for (const name of entry.names) {
-    NAME_TO_KEY.set(normalizeCountryName(name), entry.key)
+    NAME_TO_KEYS.set(normalizeCountryName(name), [entry.key])
   }
 }
-
-/** Resolves a (French) country name to its map feature key, if recognized. */
-export function resolveCountryKey(name: string): string | undefined {
-  return NAME_TO_KEY.get(normalizeCountryName(name))
-}
-
-const KEY_TO_DISPLAY_NAME = new Map<string, string>()
-for (const entry of COUNTRY_KEY_ENTRIES) {
-  if (!KEY_TO_DISPLAY_NAME.has(entry.key)) {
-    KEY_TO_DISPLAY_NAME.set(entry.key, entry.names[0])
+for (const combo of COMBO_COUNTRY_ENTRIES) {
+  for (const name of combo.names) {
+    NAME_TO_KEYS.set(normalizeCountryName(name), combo.keys)
   }
-}
-
-/** Canonical French display name for a map feature key (see {@link resolveCountryKey}). */
-export function countryDisplayName(key: string): string | undefined {
-  return KEY_TO_DISPLAY_NAME.get(key)
 }
 
 /**
- * Countries whose CSL coverage is shared: when either member of a group has
- * a dated CSL entry, both map features should render as "fiche créée".
- * Each tuple holds the two members' map feature keys (see
- * {@link resolveCountryKey}).
+ * Resolves a (French) `$pays` value to the map feature key(s) it should
+ * color — usually one, but two for a combined entry like
+ * "Gabon et Sao Tomé-et-Principe" (see {@link COMBO_COUNTRY_ENTRIES}).
+ * Empty when the name isn't a recognized country.
  */
-export const LINKED_COUNTRY_GROUPS: [string, string][] = [
-  ["266", "678"], // Gabon & Sao Tomé-et-Principe
-  ["324", "694"], // Guinée & Sierra Leone
-  ["404", "706"], // Kenya & Somalie
-  ["508", "748"], // Mozambique & Eswatini
-  ["144", "462"], // Sri Lanka & Maldives
-  ["780", "052"], // Trinité-et-Tobago & Barbade
-]
+export function resolveCountryKeys(name: string): string[] {
+  return NAME_TO_KEYS.get(normalizeCountryName(name)) ?? []
+}
 
 /**
  * Regional / international bodies that can appear in the `pays` column
@@ -341,10 +354,44 @@ export type OrganizationEntry = {
 }
 
 export const ORGANIZATION_ENTRIES: OrganizationEntry[] = [
-  { name: "Conseil de l'Europe" },
+  { name: "Conseil de l'Europe", aliases: ["CdE Conseil de l'Europe"] },
   {
     name: "Communauté du Pacifique",
     aliases: ["Commu. du Pacifique", "Communauté du pacifique", "CPS"],
+  },
+  {
+    name: "Conférence du désarmement",
+    aliases: ["Conf du désarmement", "Conf. du désarmement"],
+  },
+  { name: "Comité politique et de sécurité (COPS)", aliases: ["COPS"] },
+  {
+    name: "Organisation de l'aviation civile internationale (OACI)",
+    aliases: ["OACI"],
+  },
+  {
+    name: "Organisation de coopération et de développement économiques (OCDE)",
+    aliases: ["OCDE"],
+  },
+  { name: "Organisation des États américains (OEA)", aliases: ["OEA"] },
+  {
+    name: "Organisation pour l'interdiction des armes chimiques (OIAC)",
+    aliases: ["OIAC"],
+  },
+  { name: "Organisation maritime internationale (OMI)", aliases: ["OMI"] },
+  { name: "Organisation des Nations unies (ONU)", aliases: ["ONU"] },
+  {
+    name: "Organisation pour la sécurité et la coopération en Europe (OSCE)",
+    aliases: ["OSCE"],
+  },
+  {
+    name: "Organisation du traité de l'Atlantique nord (OTAN)",
+    aliases: ["OTAN"],
+  },
+  { name: "Organisation de l'unité africaine (OUA)", aliases: ["OUA"] },
+  { name: "Union européenne (UE)", aliases: ["UE"] },
+  {
+    name: "Organisation des Nations unies pour l'éducation, la science et la culture (UNESCO)",
+    aliases: ["UNESCO"],
   },
 ]
 

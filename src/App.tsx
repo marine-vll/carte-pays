@@ -1,7 +1,12 @@
 import { useMemo, useState } from "react"
 import type { GeoJsonObject } from "geojson"
 import { Minus, Plus, RotateCcw } from "lucide-react"
-import { ComposableMap, Geographies, Geography, ZoomableGroup } from "react-simple-maps"
+import {
+  ComposableMap,
+  Geographies,
+  Geography,
+  ZoomableGroup,
+} from "react-simple-maps"
 
 import {
   useGrist,
@@ -13,9 +18,7 @@ import {
 import { Button } from "@/components/ui/button"
 import worldTopologyJson from "@/data/world-countries-50m.json"
 import {
-  countryDisplayName,
-  LINKED_COUNTRY_GROUPS,
-  resolveCountryKey,
+  resolveCountryKeys,
   resolveOrganizationName,
 } from "@/lib/country-name-to-iso"
 
@@ -60,12 +63,6 @@ type CountryStatus = {
   pays: string
   csl: string
   hasFiche: boolean
-  /**
-   * Set when this status was propagated from a {@link LINKED_COUNTRY_GROUPS}
-   * partner rather than from the country's own row — names that partner for
-   * the tooltip.
-   */
-  linkedFrom?: string
 }
 
 type OrganizationStatus = {
@@ -83,30 +80,6 @@ type CountryData = {
 function hasFiche(csl: string): boolean {
   const trimmed = csl.trim()
   return trimmed !== "" && trimmed.toUpperCase() !== "NA"
-}
-
-/**
- * Some map features share CSL coverage (one delegation/post covers both
- * countries): when either member of a {@link LINKED_COUNTRY_GROUPS} pair has
- * a fiche, propagate that status to the other member too.
- */
-function applyLinkedGroups(byKey: Map<string, CountryStatus>): void {
-  for (const group of LINKED_COUNTRY_GROUPS) {
-    const source = group
-      .map((key) => byKey.get(key))
-      .find((status): status is CountryStatus => status?.hasFiche === true)
-    if (!source) continue
-    for (const key of group) {
-      const existing = byKey.get(key)
-      if (existing?.hasFiche) continue
-      byKey.set(key, {
-        pays: existing?.pays ?? countryDisplayName(key) ?? key,
-        csl: source.csl,
-        hasFiche: true,
-        linkedFrom: source.pays,
-      })
-    }
-  }
 }
 
 function useCountryData(w: PaysGrist): CountryData {
@@ -128,19 +101,24 @@ function useCountryData(w: PaysGrist): CountryData {
       const pays = row[paysCol]
       if (typeof pays !== "string" || !pays.trim()) continue
       const csl = typeof row[cslCol] === "string" ? (row[cslCol] as string) : ""
-      const key = resolveCountryKey(pays)
-      if (!key) {
+      const keys = resolveCountryKeys(pays)
+      if (keys.length === 0) {
         const orgName = resolveOrganizationName(pays)
         if (orgName) {
-          orgByName.set(orgName, (orgByName.get(orgName) ?? false) || hasFiche(csl))
+          orgByName.set(
+            orgName,
+            (orgByName.get(orgName) ?? false) || hasFiche(csl)
+          )
         } else {
           unrecognized.push(pays)
         }
         continue
       }
-      byKey.set(key, { pays, csl, hasFiche: hasFiche(csl) })
+      // A combined entry (e.g. "Gabon et Sao Tomé-et-Principe") resolves to
+      // more than one key — both map features share this row's status.
+      const status: CountryStatus = { pays, csl, hasFiche: hasFiche(csl) }
+      for (const key of keys) byKey.set(key, status)
     }
-    applyLinkedGroups(byKey)
     unrecognized.sort((a, b) => a.localeCompare(b, "fr"))
     const organizations = Array.from(orgByName, ([name, active]) => ({
       name,
@@ -158,13 +136,19 @@ const DEFAULT_CENTER: [number, number] = [12, 8]
 
 type MapPosition = { coordinates: [number, number]; zoom: number }
 
-const DEFAULT_POSITION: MapPosition = { coordinates: DEFAULT_CENTER, zoom: MIN_ZOOM }
+const DEFAULT_POSITION: MapPosition = {
+  coordinates: DEFAULT_CENTER,
+  zoom: MIN_ZOOM,
+}
 
-function describeStatus(status: CountryStatus | undefined, mapName: string): string {
+function describeStatus(
+  status: CountryStatus | undefined,
+  mapName: string
+): string {
   if (!status) return mapName
-  if (!status.hasFiche) return `${status.pays} — Pas de fiche`
-  const suffix = status.linkedFrom ? ` (lié à ${status.linkedFrom})` : ""
-  return `${status.pays} — Fiche créée (${status.csl})${suffix}`
+  return status.hasFiche
+    ? `${status.pays} — Fiche créée (${status.csl})`
+    : `${status.pays} — Pas de fiche`
 }
 
 function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
@@ -213,8 +197,11 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
             {({ geographies }) =>
               geographies.map((geo) => {
                 const mapName =
-                  typeof geo.properties?.name === "string" ? geo.properties.name : ""
-                const key = geo.id != null ? String(geo.id) : mapName || undefined
+                  typeof geo.properties?.name === "string"
+                    ? geo.properties.name
+                    : ""
+                const key =
+                  geo.id != null ? String(geo.id) : mapName || undefined
                 const status = key ? byKey.get(key) : undefined
                 const fill = status?.hasFiche ? ACCENT_GREEN : NEUTRAL_FILL
                 const tooltip = describeStatus(status, mapName)
@@ -290,17 +277,25 @@ function Legend() {
   )
 }
 
-function OrganizationList({ organizations }: { organizations: OrganizationStatus[] }) {
+function OrganizationList({
+  organizations,
+}: {
+  organizations: OrganizationStatus[]
+}) {
   if (organizations.length === 0) return null
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-      <span className="font-medium text-foreground">Autres entités suivies :</span>
+      <span className="font-medium text-foreground">
+        Autres entités suivies :
+      </span>
       {organizations.map((org) => (
         <span key={org.name} className="flex items-center gap-1.5">
           <span
             className="inline-block size-2.5 rounded-full"
-            style={{ backgroundColor: org.hasFiche ? ACCENT_GREEN : NEUTRAL_FILL }}
+            style={{
+              backgroundColor: org.hasFiche ? ACCENT_GREEN : NEUTRAL_FILL,
+            }}
             aria-hidden
           />
           {org.name}
@@ -317,7 +312,11 @@ export function App() {
   const { byKey, unrecognized, organizations, loaded } = useCountryData(w)
 
   if (!loaded) {
-    return <div className="p-6 text-sm text-muted-foreground">Chargement des pays…</div>
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        Chargement des pays…
+      </div>
+    )
   }
 
   return (

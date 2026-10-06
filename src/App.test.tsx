@@ -5,8 +5,17 @@
  */
 import "@testing-library/jest-dom/vitest"
 import { afterEach, describe, expect, it } from "vitest"
-import { GristBoundary, GristWidgetProvider, type GristReplicaDocument } from "grist-widget-sdk"
-import { cleanup, renderWithGrist, screen, waitFor } from "grist-widget-sdk/emulator/testing"
+import {
+  GristBoundary,
+  GristWidgetProvider,
+  type GristReplicaDocument,
+} from "grist-widget-sdk"
+import {
+  cleanup,
+  renderWithGrist,
+  screen,
+  waitFor,
+} from "grist-widget-sdk/emulator/testing"
 
 import App, { GRIST_OPTIONS } from "./App"
 
@@ -15,7 +24,9 @@ afterEach(() => cleanup())
 function Wrapped() {
   return (
     <GristWidgetProvider options={GRIST_OPTIONS}>
-      <GristBoundary gate={GRIST_OPTIONS.columns?.length ? "canRender" : "ready"}>
+      <GristBoundary
+        gate={GRIST_OPTIONS.columns?.length ? "canRender" : "ready"}
+      >
         <App />
       </GristBoundary>
     </GristWidgetProvider>
@@ -38,9 +49,9 @@ const PAYS_DOCUMENT: GristReplicaDocument = {
         { id: 2, pays: "Allemagne", CSL: "NA" },
         { id: 3, pays: "Côte d'Ivoire", CSL: "  " },
         { id: 4, pays: "Pays imaginaire", CSL: "NA" },
-        { id: 5, pays: "Gabon", CSL: "Validé" },
-        { id: 6, pays: "Conseil de l'Europe", CSL: "Validé" },
-        { id: 7, pays: "Commu. du Pacifique", CSL: "NA" },
+        { id: 5, pays: "Gabon et Sao Tomé-et-Principe", CSL: "Validé" },
+        { id: 6, pays: "CdE Conseil de l'Europe", CSL: "Validé" },
+        { id: 7, pays: "ONU", CSL: "NA" },
       ],
     },
   },
@@ -67,13 +78,19 @@ describe("App", () => {
       const titles = Array.from(container.querySelectorAll("title")).map(
         (t) => t.textContent ?? ""
       )
-      expect(titles.some((t) => t.includes("France") && t.includes("Validé"))).toBe(true)
-      expect(titles.some((t) => t.includes("Allemagne") && t.includes("Pas de fiche"))).toBe(
-        true
-      )
+      expect(
+        titles.some((t) => t.includes("France") && t.includes("Validé"))
+      ).toBe(true)
+      expect(
+        titles.some(
+          (t) => t.includes("Allemagne") && t.includes("Pas de fiche")
+        )
+      ).toBe(true)
       // Côte d'Ivoire's CSL is blank, not "NA" — still counts as "no fiche".
       expect(
-        titles.some((t) => t.includes("Côte d'Ivoire") && t.includes("Pas de fiche"))
+        titles.some(
+          (t) => t.includes("Côte d'Ivoire") && t.includes("Pas de fiche")
+        )
       ).toBe(true)
     })
   })
@@ -85,48 +102,57 @@ describe("App", () => {
     emulator.setColumnMappings({ pays: "pays", CSL: "CSL" })
 
     await waitFor(() => {
-      const franceTitle = Array.from(container.querySelectorAll("title")).find((t) =>
-        t.textContent?.includes("France")
+      const franceTitle = Array.from(container.querySelectorAll("title")).find(
+        (t) => t.textContent?.includes("France")
       )
       expect(franceTitle).toBeTruthy()
       const francePath = franceTitle!.closest("path")
       expect(francePath).toHaveStyle({ fill: "#18753c" })
 
-      const allemagneTitle = Array.from(container.querySelectorAll("title")).find((t) =>
-        t.textContent?.includes("Allemagne")
-      )
+      const allemagneTitle = Array.from(
+        container.querySelectorAll("title")
+      ).find((t) => t.textContent?.includes("Allemagne"))
       const allemagnePath = allemagneTitle!.closest("path")
       expect(allemagnePath).toHaveStyle({ fill: "#e5e5e5" })
     })
   })
 
-  it("propagates a fiche to a linked country and lists organizations separately", async () => {
+  it("lights up both countries from a combined entry, and lists organizations separately", async () => {
     const { container, emulator } = renderWithGrist(<Wrapped />, {
       emulator: { document: PAYS_DOCUMENT },
     })
     emulator.setColumnMappings({ pays: "pays", CSL: "CSL" })
 
-    // Gabon has a fiche; Sao Tomé-et-Principe shares CSL coverage with it and
-    // has no row of its own, so it should turn green too.
+    // "Gabon et Sao Tomé-et-Principe" is one row covering both countries —
+    // both map features should turn green from that single entry.
     await waitFor(() => {
-      const saoTomeTitle = Array.from(container.querySelectorAll("title")).find((t) =>
-        t.textContent?.includes("Sao Tomé-et-Principe")
+      const gabonTitle = Array.from(container.querySelectorAll("title")).find(
+        (t) => t.textContent?.startsWith("Gabon et Sao Tomé-et-Principe")
+      )
+      expect(gabonTitle).toBeTruthy()
+      expect(gabonTitle!.closest("path")).toHaveStyle({ fill: "#18753c" })
+
+      const saoTomeTitle = Array.from(container.querySelectorAll("title")).find(
+        (t) =>
+          t.textContent?.startsWith("Gabon et Sao Tomé-et-Principe") &&
+          t.closest("path") !== gabonTitle!.closest("path")
       )
       expect(saoTomeTitle).toBeTruthy()
-      expect(saoTomeTitle!.textContent).toContain("lié à Gabon")
       expect(saoTomeTitle!.closest("path")).toHaveStyle({ fill: "#18753c" })
     })
 
-    // Non-country entities render in their own list instead of being flagged
-    // as unrecognized.
+    // Non-country entities (including acronyms) render in their own list
+    // instead of being flagged as unrecognized.
     await waitFor(() => {
       expect(screen.getByText("Autres entités suivies :")).toBeInTheDocument()
       expect(screen.getByText("Conseil de l'Europe")).toBeInTheDocument()
-      expect(screen.getByText("Communauté du Pacifique")).toBeInTheDocument()
+      expect(
+        screen.getByText("Organisation des Nations unies (ONU)")
+      ).toBeInTheDocument()
 
       const unrecognized = screen.getByText(/Pays non reconnus/)
       expect(unrecognized.textContent).not.toContain("Conseil de l'Europe")
-      expect(unrecognized.textContent).not.toContain("Communauté du Pacifique")
+      expect(unrecognized.textContent).not.toContain("ONU")
     })
   })
 })
