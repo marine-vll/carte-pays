@@ -15,11 +15,12 @@ export type CountryKeyEntry = {
 }
 
 /**
- * French overseas territories that appear as their own map feature (distinct
- * from mainland France, key "250"). Always rendered in a dedicated dark grey
- * on the map, regardless of their CSL/Projet AAP status.
+ * France itself plus its overseas territories that appear as their own map
+ * feature. Always rendered in a dedicated dark grey on the map, regardless of
+ * their CSL/Projet AAP status — France isn't a tracked post.
  */
-export const FRENCH_TERRITORY_KEYS = new Set<string>([
+export const FRANCE_AND_TERRITORY_KEYS = new Set<string>([
+  "250", // France (métropole)
   "258", // Polynésie française
   "540", // Nouvelle-Calédonie
   "260", // Terres australes et antarctiques françaises

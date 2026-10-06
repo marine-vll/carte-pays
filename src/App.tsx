@@ -18,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button"
 import worldTopologyJson from "@/data/world-countries-50m.json"
 import {
-  FRENCH_TERRITORY_KEYS,
+  FRANCE_AND_TERRITORY_KEYS,
   resolveCountryKeys,
   resolveOrganizationName,
 } from "@/lib/country-name-to-iso"
@@ -88,7 +88,7 @@ type CountryData = {
   byKey: Map<string, CountryStatus>
   unrecognized: string[]
   organizations: OrganizationStatus[]
-  /** % of (non-territory) tracked countries with a launched CSL, or null with nothing tracked yet. */
+  /** % of tracked countries (excluding France and its territories) with an active CSL, or null with nothing tracked yet. */
   cslPercentage: number | null
   loaded: boolean
 }
@@ -173,7 +173,7 @@ function useCountryData(w: PaysGrist): CountryData {
     })).sort((a, b) => a.name.localeCompare(b.name, "fr"))
 
     const trackedCountries = Array.from(byKey.entries()).filter(
-      ([key]) => !FRENCH_TERRITORY_KEYS.has(key)
+      ([key]) => !FRANCE_AND_TERRITORY_KEYS.has(key)
     )
     const cslPercentage =
       trackedCountries.length > 0
@@ -203,9 +203,9 @@ const DEFAULT_POSITION: MapPosition = {
 
 function fillFor(
   status: CountryStatus | undefined,
-  isFrenchTerritory: boolean
+  isFranceOrTerritory: boolean
 ): string {
-  if (isFrenchTerritory) return TERRITORY_FILL
+  if (isFranceOrTerritory) return TERRITORY_FILL
   if (!status) return NEUTRAL_FILL
   if (status.hasFiche && status.hasProject) return `url(#${STRIPE_PATTERN_ID})`
   if (status.hasFiche) return ACCENT_GREEN
@@ -216,13 +216,13 @@ function fillFor(
 function describeStatus(
   status: CountryStatus | undefined,
   mapName: string,
-  isFrenchTerritory: boolean
+  isFranceOrTerritory: boolean
 ): string {
   const name = status?.pays ?? mapName
   const parts: string[] = []
-  if (status?.hasFiche) parts.push(`CSL lancé (${status.csl})`)
+  if (status?.hasFiche) parts.push(`CSL actif (${status.csl})`)
   if (status?.hasProject) parts.push("Projet en cours")
-  if (isFrenchTerritory) parts.push("Territoire français")
+  if (isFranceOrTerritory) parts.push("France")
   if (parts.length === 0) return status ? `${name} — NA` : name
   return `${name} — ${parts.join(" · ")}`
 }
@@ -251,7 +251,37 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
   }
 
   return (
-    <div className="relative">
+    <div className="flex flex-col gap-1.5">
+      {/* A normal flow row above the map, not an overlay on top of the SVG
+          canvas: a toolbar positioned over the zoom/pan surface was getting
+          dragged along with it once the user actually zoomed or panned. */}
+      <div
+        className="flex w-fit self-end overflow-hidden rounded-md shadow-sm"
+        style={{ backgroundColor: "#ffffff", border: "1px solid #c7c7c7" }}
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="rounded-none hover:bg-black/5"
+          style={{ color: "#1f2937", borderRight: "1px solid #c7c7c7" }}
+          aria-label="Zoomer"
+          onClick={() => zoomBy(1.5)}
+        >
+          <Plus />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="rounded-none hover:bg-black/5"
+          style={{ color: "#1f2937" }}
+          aria-label="Dézoomer"
+          onClick={() => zoomBy(1 / 1.5)}
+        >
+          <Minus />
+        </Button>
+      </div>
       <ComposableMap
         width={MAP_WIDTH}
         height={MAP_HEIGHT}
@@ -291,14 +321,14 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
                 const key =
                   geo.id != null ? String(geo.id) : mapName || undefined
                 const status = key ? byKey.get(key) : undefined
-                const isFrenchTerritory = key
-                  ? FRENCH_TERRITORY_KEYS.has(key)
+                const isFranceOrTerritory = key
+                  ? FRANCE_AND_TERRITORY_KEYS.has(key)
                   : false
-                const fill = fillFor(status, isFrenchTerritory)
+                const fill = fillFor(status, isFranceOrTerritory)
                 const tooltip = describeStatus(
                   status,
                   mapName,
-                  isFrenchTerritory
+                  isFranceOrTerritory
                 )
 
                 return (
@@ -316,40 +346,6 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
           </Geographies>
         </ZoomableGroup>
       </ComposableMap>
-      {/* Explicit colors, not Tailwind theme tokens (bg-background,
-          border-border, ...): those resolve against CSS variables set by
-          ThemeProvider, which doesn't reliably pick up a theme once this
-          widget is actually embedded inside Grist — leaving the toolbar
-          transparent/invisible there even though it renders fine in dev
-          and in tests. The rest of the map already avoids this by using
-          literal hex values (NEUTRAL_FILL, ACCENT_GREEN, ...). */}
-      <div
-        className="absolute top-2 right-2 flex overflow-hidden rounded-md shadow-sm"
-        style={{ backgroundColor: "#ffffff", border: "1px solid #c7c7c7" }}
-      >
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="rounded-none hover:bg-black/5"
-          style={{ color: "#1f2937", borderRight: "1px solid #c7c7c7" }}
-          aria-label="Zoomer"
-          onClick={() => zoomBy(1.5)}
-        >
-          <Plus />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="rounded-none hover:bg-black/5"
-          style={{ color: "#1f2937" }}
-          aria-label="Dézoomer"
-          onClick={() => zoomBy(1 / 1.5)}
-        >
-          <Minus />
-        </Button>
-      </div>
     </div>
   )
 }
@@ -403,9 +399,9 @@ function LegendSwatch({ label, swatch }: { label: string; swatch: ReactNode }) {
 
 function Legend() {
   return (
-    <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+    <div className="flex flex-col items-start gap-1.5 text-xs text-muted-foreground">
       <LegendSwatch
-        label="CSL lancé"
+        label="CSL actif"
         swatch={<ColorSwatch color={ACCENT_GREEN} />}
       />
       <LegendSwatch
@@ -413,12 +409,12 @@ function Legend() {
         swatch={<ColorSwatch color={ACCENT_BLUE} />}
       />
       <LegendSwatch
-        label="CSL lancé et projet en cours"
+        label="CSL actif et projet en cours"
         swatch={<StripedSwatch />}
       />
       <LegendSwatch label="NA" swatch={<ColorSwatch color={NEUTRAL_FILL} />} />
       <LegendSwatch
-        label="Territoire français"
+        label="France"
         swatch={<ColorSwatch color={TERRITORY_FILL} />}
       />
     </div>
@@ -434,7 +430,7 @@ function dotColorFor(org: OrganizationStatus): string {
 
 function describeOrganization(org: OrganizationStatus): string {
   const parts: string[] = []
-  if (org.hasFiche) parts.push("CSL lancé")
+  if (org.hasFiche) parts.push("CSL actif")
   if (org.hasProject) parts.push("Projet en cours")
   return parts.length > 0 ? parts.join(" · ") : "NA"
 }
@@ -491,7 +487,7 @@ export function App() {
       {cslPercentage != null ? (
         <p className="text-xs text-muted-foreground">
           <span className="font-medium text-foreground">{cslPercentage}%</span>{" "}
-          des pays suivis ont un CSL lancé
+          de postes nous ont signalé leur CSL
         </p>
       ) : null}
       <OrganizationList organizations={organizations} />

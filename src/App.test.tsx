@@ -74,7 +74,7 @@ describe("App", () => {
     emulator.setColumnMappings({ pays: "pays", CSL: "CSL", projetAAP: "projetAAP" })
 
     await waitFor(() => {
-      expect(screen.getByText("CSL lancé")).toBeInTheDocument()
+      expect(screen.getByText("CSL actif")).toBeInTheDocument()
       expect(screen.getByText("NA")).toBeInTheDocument()
     })
 
@@ -107,18 +107,33 @@ describe("App", () => {
     emulator.setColumnMappings({ pays: "pays", CSL: "CSL", projetAAP: "projetAAP" })
 
     await waitFor(() => {
-      const franceTitle = Array.from(container.querySelectorAll("title")).find(
-        (t) => t.textContent?.includes("France")
+      const gabonTitle = Array.from(container.querySelectorAll("title")).find(
+        (t) => t.textContent?.startsWith("Gabon et Sao Tomé-et-Principe")
       )
-      expect(franceTitle).toBeTruthy()
-      const francePath = franceTitle!.closest("path")
-      expect(francePath).toHaveStyle({ fill: "#18753c" })
+      expect(gabonTitle).toBeTruthy()
+      expect(gabonTitle!.closest("path")).toHaveStyle({ fill: "#18753c" })
 
       const allemagneTitle = Array.from(
         container.querySelectorAll("title")
       ).find((t) => t.textContent?.includes("Allemagne"))
       const allemagnePath = allemagneTitle!.closest("path")
       expect(allemagnePath).toHaveStyle({ fill: "#e5e5e5" })
+    })
+  })
+
+  it("always renders mainland France dark grey, even with an active CSL", async () => {
+    const { container, emulator } = renderWithGrist(<Wrapped />, {
+      emulator: { document: PAYS_DOCUMENT },
+    })
+    emulator.setColumnMappings({ pays: "pays", CSL: "CSL", projetAAP: "projetAAP" })
+
+    await waitFor(() => {
+      const franceTitle = Array.from(container.querySelectorAll("title")).find(
+        (t) => t.textContent?.startsWith("France —")
+      )
+      expect(franceTitle).toBeTruthy()
+      expect(franceTitle!.textContent).toContain("Validé")
+      expect(franceTitle!.closest("path")).toHaveStyle({ fill: "#6a6a6a" })
     })
   })
 
@@ -185,7 +200,7 @@ describe("App", () => {
         (t) => t.textContent?.includes("Italie")
       )
       expect(italieTitle).toBeTruthy()
-      expect(italieTitle!.textContent).toContain("CSL lancé")
+      expect(italieTitle!.textContent).toContain("CSL actif")
       expect(italieTitle!.textContent).toContain("Projet en cours")
       expect(italieTitle!.closest("path")).toHaveStyle({
         fill: "url(#csl-and-projet-aap)",
@@ -196,18 +211,18 @@ describe("App", () => {
         container.querySelectorAll("title")
       ).find((t) => t.textContent?.includes("Polynésie française"))
       expect(polynesieTitle).toBeTruthy()
-      expect(polynesieTitle!.textContent).toContain("Territoire français")
+      expect(polynesieTitle!.textContent).toContain("France")
       expect(polynesieTitle!.closest("path")).toHaveStyle({ fill: "#6a6a6a" })
     })
 
-    // 7 distinct map features are tracked once Polynésie française (a
-    // territory) is excluded: France, Allemagne, Côte d'Ivoire, Gabon,
-    // Sao Tomé-et-Principe, Italie, Japon. 4 of those 7 have a launched
-    // CSL (France, Gabon, Sao Tomé-et-Principe, Italie) — round(4/7*100) = 57.
+    // 6 distinct map features are tracked once France and Polynésie
+    // française are excluded: Allemagne, Côte d'Ivoire, Gabon,
+    // Sao Tomé-et-Principe, Italie, Japon. 3 of those 6 have an active
+    // CSL (Gabon, Sao Tomé-et-Principe, Italie) — round(3/6*100) = 50.
     await waitFor(() => {
-      expect(screen.getByText("57%")).toBeInTheDocument()
+      expect(screen.getByText("50%")).toBeInTheDocument()
       expect(
-        screen.getByText(/des pays suivis ont un CSL lancé/)
+        screen.getByText(/de postes nous ont signalé leur CSL/)
       ).toBeInTheDocument()
     })
   })
