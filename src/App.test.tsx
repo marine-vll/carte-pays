@@ -38,6 +38,9 @@ const PAYS_DOCUMENT: GristReplicaDocument = {
         { id: 2, pays: "Allemagne", CSL: "NA" },
         { id: 3, pays: "Côte d'Ivoire", CSL: "  " },
         { id: 4, pays: "Pays imaginaire", CSL: "NA" },
+        { id: 5, pays: "Gabon", CSL: "Validé" },
+        { id: 6, pays: "Conseil de l'Europe", CSL: "Validé" },
+        { id: 7, pays: "Commu. du Pacifique", CSL: "NA" },
       ],
     },
   },
@@ -94,6 +97,36 @@ describe("App", () => {
       )
       const allemagnePath = allemagneTitle!.closest("path")
       expect(allemagnePath).toHaveStyle({ fill: "#e5e5e5" })
+    })
+  })
+
+  it("propagates a fiche to a linked country and lists organizations separately", async () => {
+    const { container, emulator } = renderWithGrist(<Wrapped />, {
+      emulator: { document: PAYS_DOCUMENT },
+    })
+    emulator.setColumnMappings({ pays: "pays", CSL: "CSL" })
+
+    // Gabon has a fiche; Sao Tomé-et-Principe shares CSL coverage with it and
+    // has no row of its own, so it should turn green too.
+    await waitFor(() => {
+      const saoTomeTitle = Array.from(container.querySelectorAll("title")).find((t) =>
+        t.textContent?.includes("Sao Tomé-et-Principe")
+      )
+      expect(saoTomeTitle).toBeTruthy()
+      expect(saoTomeTitle!.textContent).toContain("lié à Gabon")
+      expect(saoTomeTitle!.closest("path")).toHaveStyle({ fill: "#18753c" })
+    })
+
+    // Non-country entities render in their own list instead of being flagged
+    // as unrecognized.
+    await waitFor(() => {
+      expect(screen.getByText("Autres entités suivies :")).toBeInTheDocument()
+      expect(screen.getByText("Conseil de l'Europe")).toBeInTheDocument()
+      expect(screen.getByText("Communauté du Pacifique")).toBeInTheDocument()
+
+      const unrecognized = screen.getByText(/Pays non reconnus/)
+      expect(unrecognized.textContent).not.toContain("Conseil de l'Europe")
+      expect(unrecognized.textContent).not.toContain("Communauté du Pacifique")
     })
   })
 })

@@ -12,7 +12,12 @@ import {
 
 import { Button } from "@/components/ui/button"
 import worldTopologyJson from "@/data/world-countries-50m.json"
-import { resolveCountryKey } from "@/lib/country-name-to-iso"
+import {
+  countryDisplayName,
+  LINKED_COUNTRY_GROUPS,
+  resolveCountryKey,
+  resolveOrganizationName,
+} from "@/lib/country-name-to-iso"
 
 import type { PaysMapped, PaysRow } from "./grist-types"
 
@@ -55,17 +60,53 @@ type CountryStatus = {
   pays: string
   csl: string
   hasFiche: boolean
+  /**
+   * Set when this status was propagated from a {@link LINKED_COUNTRY_GROUPS}
+   * partner rather than from the country's own row — names that partner for
+   * the tooltip.
+   */
+  linkedFrom?: string
+}
+
+type OrganizationStatus = {
+  name: string
+  hasFiche: boolean
 }
 
 type CountryData = {
   byKey: Map<string, CountryStatus>
   unrecognized: string[]
+  organizations: OrganizationStatus[]
   loaded: boolean
 }
 
 function hasFiche(csl: string): boolean {
   const trimmed = csl.trim()
   return trimmed !== "" && trimmed.toUpperCase() !== "NA"
+}
+
+/**
+ * Some map features share CSL coverage (one delegation/post covers both
+ * countries): when either member of a {@link LINKED_COUNTRY_GROUPS} pair has
+ * a fiche, propagate that status to the other member too.
+ */
+function applyLinkedGroups(byKey: Map<string, CountryStatus>): void {
+  for (const group of LINKED_COUNTRY_GROUPS) {
+    const source = group
+      .map((key) => byKey.get(key))
+      .find((status): status is CountryStatus => status?.hasFiche === true)
+    if (!source) continue
+    for (const key of group) {
+      const existing = byKey.get(key)
+      if (existing?.hasFiche) continue
+      byKey.set(key, {
+        pays: existing?.pays ?? countryDisplayName(key) ?? key,
+        csl: source.csl,
+        hasFiche: true,
+        linkedFrom: source.pays,
+      })
+    }
+  }
 }
 
 function useCountryData(w: PaysGrist): CountryData {
@@ -75,11 +116,12 @@ function useCountryData(w: PaysGrist): CountryData {
   return useMemo(() => {
     const byKey = new Map<string, CountryStatus>()
     const unrecognized: string[] = []
+    const orgByName = new Map<string, boolean>()
 
     const paysCol = typeof mappings?.pays === "string" ? mappings.pays : null
     const cslCol = typeof mappings?.CSL === "string" ? mappings.CSL : null
     if (!paysCol || !cslCol || !rows) {
-      return { byKey, unrecognized, loaded: rows != null }
+      return { byKey, unrecognized, organizations: [], loaded: rows != null }
     }
 
     for (const row of rows) {
@@ -88,13 +130,23 @@ function useCountryData(w: PaysGrist): CountryData {
       const csl = typeof row[cslCol] === "string" ? (row[cslCol] as string) : ""
       const key = resolveCountryKey(pays)
       if (!key) {
-        unrecognized.push(pays)
+        const orgName = resolveOrganizationName(pays)
+        if (orgName) {
+          orgByName.set(orgName, (orgByName.get(orgName) ?? false) || hasFiche(csl))
+        } else {
+          unrecognized.push(pays)
+        }
         continue
       }
       byKey.set(key, { pays, csl, hasFiche: hasFiche(csl) })
     }
+    applyLinkedGroups(byKey)
     unrecognized.sort((a, b) => a.localeCompare(b, "fr"))
-    return { byKey, unrecognized, loaded: true }
+    const organizations = Array.from(orgByName, ([name, active]) => ({
+      name,
+      hasFiche: active,
+    })).sort((a, b) => a.name.localeCompare(b.name, "fr"))
+    return { byKey, unrecognized, organizations, loaded: true }
   }, [rows, mappings])
 }
 
@@ -107,6 +159,13 @@ const DEFAULT_CENTER: [number, number] = [12, 8]
 type MapPosition = { coordinates: [number, number]; zoom: number }
 
 const DEFAULT_POSITION: MapPosition = { coordinates: DEFAULT_CENTER, zoom: MIN_ZOOM }
+
+function describeStatus(status: CountryStatus | undefined, mapName: string): string {
+  if (!status) return mapName
+  if (!status.hasFiche) return `${status.pays} — Pas de fiche`
+  const suffix = status.linkedFrom ? ` (lié à ${status.linkedFrom})` : ""
+  return `${status.pays} — Fiche créée (${status.csl})${suffix}`
+}
 
 function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
   const [position, setPosition] = useState<MapPosition>(DEFAULT_POSITION)
@@ -158,11 +217,7 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
                 const key = geo.id != null ? String(geo.id) : mapName || undefined
                 const status = key ? byKey.get(key) : undefined
                 const fill = status?.hasFiche ? ACCENT_GREEN : NEUTRAL_FILL
-                const tooltip = status
-                  ? `${status.pays} — ${
-                      status.hasFiche ? `Fiche créée (${status.csl})` : "Pas de fiche"
-                    }`
-                  : mapName
+                const tooltip = describeStatus(status, mapName)
 
                 return (
                   <Geography
@@ -235,11 +290,31 @@ function Legend() {
   )
 }
 
+function OrganizationList({ organizations }: { organizations: OrganizationStatus[] }) {
+  if (organizations.length === 0) return null
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">Autres entités suivies :</span>
+      {organizations.map((org) => (
+        <span key={org.name} className="flex items-center gap-1.5">
+          <span
+            className="inline-block size-2.5 rounded-full"
+            style={{ backgroundColor: org.hasFiche ? ACCENT_GREEN : NEUTRAL_FILL }}
+            aria-hidden
+          />
+          {org.name}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 export function App() {
   useWidgetMetadata(WIDGET_METADATA)
 
   const w = useGrist<PaysRow, PaysMapped>()
-  const { byKey, unrecognized, loaded } = useCountryData(w)
+  const { byKey, unrecognized, organizations, loaded } = useCountryData(w)
 
   if (!loaded) {
     return <div className="p-6 text-sm text-muted-foreground">Chargement des pays…</div>
@@ -249,6 +324,7 @@ export function App() {
     <div className="flex flex-col gap-3 p-4">
       <WorldMap byKey={byKey} />
       <Legend />
+      <OrganizationList organizations={organizations} />
       {unrecognized.length > 0 ? (
         <p className="text-xs text-muted-foreground">
           Pays non reconnus : {unrecognized.join(", ")}

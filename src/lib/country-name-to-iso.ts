@@ -134,7 +134,7 @@ export const COUNTRY_KEY_ENTRIES: CountryKeyEntry[] = [
   { key: "296", names: ["Kiribati"] },
   { key: "Kosovo", names: ["Kosovo"] },
   { key: "414", names: ["Koweït"] },
-  { key: "417", names: ["Kirghizistan"] },
+  { key: "417", names: ["Kirghizistan", "Kirghizstan", "Kyrgyzstan"] },
   { key: "418", names: ["Laos"] },
   { key: "428", names: ["Lettonie"] },
   { key: "422", names: ["Liban"] },
@@ -182,7 +182,7 @@ export const COUNTRY_KEY_ENTRIES: CountryKeyEntry[] = [
   { key: "512", names: ["Oman"] },
   { key: "586", names: ["Pakistan"] },
   { key: "585", names: ["Palaos"] },
-  { key: "275", names: ["Palestine"] },
+  { key: "275", names: ["Palestine", "Jérusalem"] },
   { key: "591", names: ["Panama"] },
   { key: "598", names: ["Papouasie-Nouvelle-Guinée"] },
   { key: "600", names: ["Paraguay"] },
@@ -299,4 +299,64 @@ for (const entry of COUNTRY_KEY_ENTRIES) {
 /** Resolves a (French) country name to its map feature key, if recognized. */
 export function resolveCountryKey(name: string): string | undefined {
   return NAME_TO_KEY.get(normalizeCountryName(name))
+}
+
+const KEY_TO_DISPLAY_NAME = new Map<string, string>()
+for (const entry of COUNTRY_KEY_ENTRIES) {
+  if (!KEY_TO_DISPLAY_NAME.has(entry.key)) {
+    KEY_TO_DISPLAY_NAME.set(entry.key, entry.names[0])
+  }
+}
+
+/** Canonical French display name for a map feature key (see {@link resolveCountryKey}). */
+export function countryDisplayName(key: string): string | undefined {
+  return KEY_TO_DISPLAY_NAME.get(key)
+}
+
+/**
+ * Countries whose CSL coverage is shared: when either member of a group has
+ * a dated CSL entry, both map features should render as "fiche créée".
+ * Each tuple holds the two members' map feature keys (see
+ * {@link resolveCountryKey}).
+ */
+export const LINKED_COUNTRY_GROUPS: [string, string][] = [
+  ["266", "678"], // Gabon & Sao Tomé-et-Principe
+  ["324", "694"], // Guinée & Sierra Leone
+  ["404", "706"], // Kenya & Somalie
+  ["508", "748"], // Mozambique & Eswatini
+  ["144", "462"], // Sri Lanka & Maldives
+  ["780", "052"], // Trinité-et-Tobago & Barbade
+]
+
+/**
+ * Regional / international bodies that can appear in the `pays` column
+ * alongside actual countries. They have no map feature to color, so the
+ * widget lists them separately instead of flagging them as unrecognized.
+ */
+export type OrganizationEntry = {
+  /** Canonical display name. */
+  name: string
+  /** Known alternate spellings/abbreviations. */
+  aliases?: string[]
+}
+
+export const ORGANIZATION_ENTRIES: OrganizationEntry[] = [
+  { name: "Conseil de l'Europe" },
+  {
+    name: "Communauté du Pacifique",
+    aliases: ["Commu. du Pacifique", "Communauté du pacifique", "CPS"],
+  },
+]
+
+const ORGANIZATION_NAME_BY_ALIAS = new Map<string, string>()
+for (const entry of ORGANIZATION_ENTRIES) {
+  ORGANIZATION_NAME_BY_ALIAS.set(normalizeCountryName(entry.name), entry.name)
+  for (const alias of entry.aliases ?? []) {
+    ORGANIZATION_NAME_BY_ALIAS.set(normalizeCountryName(alias), entry.name)
+  }
+}
+
+/** Resolves a name to a known organization's canonical name, if recognized. */
+export function resolveOrganizationName(name: string): string | undefined {
+  return ORGANIZATION_NAME_BY_ALIAS.get(normalizeCountryName(name))
 }
