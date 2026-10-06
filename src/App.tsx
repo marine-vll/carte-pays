@@ -256,7 +256,7 @@ function WorldMap({ byKey }: { byKey: Map<string, CountryStatus> }) {
           canvas: a toolbar positioned over the zoom/pan surface was getting
           dragged along with it once the user actually zoomed or panned. */}
       <div
-        className="flex w-fit self-end overflow-hidden rounded-md shadow-sm"
+        className="flex w-fit self-start overflow-hidden rounded-md shadow-sm"
         style={{ backgroundColor: "#ffffff", border: "1px solid #c7c7c7" }}
       >
         <Button
@@ -482,8 +482,12 @@ export function App() {
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      <WorldMap byKey={byKey} />
-      <Legend />
+      <div className="flex flex-wrap gap-4">
+        <Legend />
+        <div className="min-w-[240px] flex-1">
+          <WorldMap byKey={byKey} />
+        </div>
+      </div>
       {cslPercentage != null ? (
         <p className="text-xs text-muted-foreground">
           <span className="font-medium text-foreground">{cslPercentage}%</span>{" "}
