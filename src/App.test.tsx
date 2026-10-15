@@ -44,23 +44,61 @@ const PAYS_DOCUMENT: GristReplicaDocument = {
         pays: { type: "Text", label: "Pays" },
         CSL: { type: "Text", label: "CSL", isFormula: true },
         projetAAP: { type: "Text", label: "Projet AAP" },
+        ppdRp: { type: "Bool", label: "PPD/RP" },
       },
       rows: [
-        { id: 1, pays: "France", CSL: "Validé", projetAAP: "" },
-        { id: 2, pays: "Allemagne", CSL: "NA", projetAAP: "" },
-        { id: 3, pays: "Côte d'Ivoire", CSL: "  ", projetAAP: "" },
-        { id: 4, pays: "Pays imaginaire", CSL: "NA", projetAAP: "" },
+        { id: 1, pays: "France", CSL: "Validé", projetAAP: "", ppdRp: false },
+        { id: 2, pays: "Allemagne", CSL: "NA", projetAAP: "", ppdRp: false },
+        {
+          id: 3,
+          pays: "Côte d'Ivoire",
+          CSL: "  ",
+          projetAAP: "",
+          ppdRp: false,
+        },
+        {
+          id: 4,
+          pays: "Pays imaginaire",
+          CSL: "NA",
+          projetAAP: "",
+          ppdRp: false,
+        },
         {
           id: 5,
           pays: "Gabon et Sao Tomé-et-Principe",
           CSL: "Validé",
           projetAAP: "",
+          ppdRp: true,
         },
-        { id: 6, pays: "CdE Conseil de l'Europe", CSL: "Validé", projetAAP: "" },
-        { id: 7, pays: "ONU", CSL: "NA", projetAAP: "" },
-        { id: 8, pays: "Italie", CSL: "Validé", projetAAP: "Appel 2026" },
-        { id: 9, pays: "Japon", CSL: "NA", projetAAP: "Appel 2027" },
-        { id: 10, pays: "Polynésie française", CSL: "NA", projetAAP: "" },
+        {
+          id: 6,
+          pays: "CdE Conseil de l'Europe",
+          CSL: "Validé",
+          projetAAP: "",
+          ppdRp: false,
+        },
+        { id: 7, pays: "ONU", CSL: "NA", projetAAP: "", ppdRp: false },
+        {
+          id: 8,
+          pays: "Italie",
+          CSL: "Validé",
+          projetAAP: "Appel 2026",
+          ppdRp: false,
+        },
+        {
+          id: 9,
+          pays: "Japon",
+          CSL: "NA",
+          projetAAP: "Appel 2027",
+          ppdRp: false,
+        },
+        {
+          id: 10,
+          pays: "Polynésie française",
+          CSL: "NA",
+          projetAAP: "",
+          ppdRp: false,
+        },
       ],
     },
   },
@@ -184,6 +222,8 @@ describe("App", () => {
       pays: "pays",
       CSL: "CSL",
       projetAAP: "projetAAP",
+      // Not mapping ppdRp here on purpose: this test's 50% expectation
+      // assumes PPD/RP exclusion is off when the column isn't mapped.
     })
 
     await waitFor(() => {
@@ -224,6 +264,35 @@ describe("App", () => {
       expect(
         screen.getByText(/de postes nous ont signalé leur CSL/)
       ).toBeInTheDocument()
+    })
+  })
+
+  it("excludes PPD/RP-checked countries from the CSL% stat, but still colors them", async () => {
+    const { container, emulator } = renderWithGrist(<Wrapped />, {
+      emulator: { document: PAYS_DOCUMENT },
+    })
+    emulator.setColumnMappings({
+      pays: "pays",
+      CSL: "CSL",
+      projetAAP: "projetAAP",
+      ppdRp: "ppdRp",
+    })
+
+    // Gabon et Sao Tomé-et-Principe is PPD/RP-checked: still colored green
+    // from its active CSL...
+    await waitFor(() => {
+      const gabonTitle = Array.from(container.querySelectorAll("title")).find(
+        (t) => t.textContent?.startsWith("Gabon et Sao Tomé-et-Principe")
+      )
+      expect(gabonTitle).toBeTruthy()
+      expect(gabonTitle!.closest("path")).toHaveStyle({ fill: "#18753c" })
+    })
+
+    // ...but with Gabon and Sao Tomé-et-Principe excluded, only 4 map
+    // features remain tracked: Allemagne, Côte d'Ivoire, Italie, Japon.
+    // 1 of those 4 has an active CSL (Italie) — round(1/4*100) = 25.
+    await waitFor(() => {
+      expect(screen.getByText("25%")).toBeInTheDocument()
     })
   })
 })

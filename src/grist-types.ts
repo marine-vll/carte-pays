@@ -13,4 +13,5 @@ export type PaysMapped = {
   pays: string
   CSL: string
   projetAAP?: unknown
+  ppdRp?: unknown
 }

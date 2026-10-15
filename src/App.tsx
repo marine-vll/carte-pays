@@ -47,6 +47,13 @@ export const GRIST_OPTIONS: UseGristOptions = {
         "Un pays passe en bleu dès que cette colonne contient une valeur.",
       optional: true,
     },
+    {
+      name: "ppdRp",
+      title: "PPD/RP",
+      description:
+        "Case à cocher. Un pays coché n'est pas compté dans le pourcentage de CSL actifs.",
+      optional: true,
+    },
   ],
   // This widget always shows every row of its table — it never expects a
   // selector to drive it, so the "section not linked" callout (titled
@@ -76,6 +83,8 @@ type CountryStatus = {
   csl: string
   hasFiche: boolean
   hasProject: boolean
+  /** PPD/RP checked — excluded from the CSL% stat (but still colored normally). */
+  excludedFromStats: boolean
 }
 
 type OrganizationStatus = {
@@ -88,7 +97,7 @@ type CountryData = {
   byKey: Map<string, CountryStatus>
   unrecognized: string[]
   organizations: OrganizationStatus[]
-  /** % of tracked countries (excluding France and its territories) with an active CSL, or null with nothing tracked yet. */
+  /** % of tracked countries (excluding France, its territories, and PPD/RP-checked rows) with an active CSL, or null with nothing tracked yet. */
   cslPercentage: number | null
   loaded: boolean
 }
@@ -108,6 +117,11 @@ function hasValue(value: unknown): boolean {
   return true
 }
 
+/** True for a checked "PPD/RP" cell (Grist Bool columns read as `true`/`1`). */
+function isChecked(value: unknown): boolean {
+  return value === true || value === 1
+}
+
 function useCountryData(w: PaysGrist): CountryData {
   const rows = w.records
   const mappings = w.recordsMappings
@@ -124,6 +138,8 @@ function useCountryData(w: PaysGrist): CountryData {
     const cslCol = typeof mappings?.CSL === "string" ? mappings.CSL : null
     const projetCol =
       typeof mappings?.projetAAP === "string" ? mappings.projetAAP : null
+    const ppdRpCol =
+      typeof mappings?.ppdRp === "string" ? mappings.ppdRp : null
     if (!paysCol || !cslCol || !rows) {
       return {
         byKey,
@@ -139,6 +155,7 @@ function useCountryData(w: PaysGrist): CountryData {
       if (typeof pays !== "string" || !pays.trim()) continue
       const csl = typeof row[cslCol] === "string" ? (row[cslCol] as string) : ""
       const project = projetCol ? hasValue(row[projetCol]) : false
+      const excludedFromStats = ppdRpCol ? isChecked(row[ppdRpCol]) : false
       const keys = resolveCountryKeys(pays)
       if (keys.length === 0) {
         const orgName = resolveOrganizationName(pays)
@@ -163,6 +180,7 @@ function useCountryData(w: PaysGrist): CountryData {
         csl,
         hasFiche: hasFiche(csl),
         hasProject: project,
+        excludedFromStats,
       }
       for (const key of keys) byKey.set(key, status)
     }
@@ -173,7 +191,8 @@ function useCountryData(w: PaysGrist): CountryData {
     })).sort((a, b) => a.name.localeCompare(b.name, "fr"))
 
     const trackedCountries = Array.from(byKey.entries()).filter(
-      ([key]) => !FRANCE_AND_TERRITORY_KEYS.has(key)
+      ([key, status]) =>
+        !FRANCE_AND_TERRITORY_KEYS.has(key) && !status.excludedFromStats
     )
     const cslPercentage =
       trackedCountries.length > 0
